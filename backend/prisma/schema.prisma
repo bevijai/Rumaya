@@ -1,0 +1,612 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  owner
+  editor
+  helper
+}
+
+enum PlatformRole {
+  user
+  validator
+  admin
+}
+
+enum AgencyStatus {
+  invited
+  pending
+  active
+  suspended
+  rejected
+}
+
+enum AgencyMemberRole {
+  owner
+  manager
+  recruiter
+}
+
+enum HelperSourceCountry {
+  indonesia
+  philippines
+  myanmar
+}
+
+enum HelperLocationType {
+  overseas
+  singapore_transfer
+}
+
+enum HelperProfileStatus {
+  draft
+  pending_validation
+  changes_requested
+  published
+  hidden
+  suspended
+  rejected
+  placed
+}
+
+enum IntroductionType {
+  video
+  audio
+  assisted
+}
+
+enum HelperSkillType {
+  infant_care
+  childcare
+  eldercare
+  disability_care
+  cooking
+  pet_care
+  housekeeping
+  other
+}
+
+enum SkillProficiency {
+  basic
+  intermediate
+  advanced
+}
+
+enum ProfileDocumentType {
+  passport
+  identity
+  employment_record
+  training_certificate
+  reference
+  other
+}
+
+enum VerificationStatus {
+  pending
+  verified
+  rejected
+  expired
+}
+
+enum ValidationOutcome {
+  passed
+  failed
+  needs_changes
+}
+
+enum RepresentationStatus {
+  pending
+  accepted
+  declined
+  ended
+  disputed
+}
+
+enum InquiryStatus {
+  submitted
+  accepted
+  declined
+  clarification_requested
+  interviewing
+  held
+  placement_confirmed
+  cancelled
+}
+
+enum MarketplaceConsentType {
+  data_processing
+  profile_publication
+  agency_representation
+  interview
+  recording
+}
+
+enum LeaveType {
+  home
+  extra_day_off
+  sick
+  other
+}
+
+enum LeaveRequestStatus {
+  pending
+  approved
+  declined
+  cancelled
+}
+
+enum PaymentMethod {
+  cash
+  bank
+  mother_account
+  other
+}
+
+enum TallyHelperResponse {
+  agree
+  disagree
+}
+
+model Household {
+  id            String         @id @default(uuid())
+  name          String
+  createdAt     DateTime       @default(now())
+  members       Member[]
+  contractTerms ContractTerms?
+  payFields     PayField[]
+  holidays      Holiday[]
+  months        Month[]
+  leaveRequests LeaveRequest[]
+  activityLogs  ActivityLog[]
+  messages      Message[]
+  invites       Invite[]
+}
+
+model Member {
+  id          String     @id @default(uuid())
+  household   Household? @relation(fields: [householdId], references: [id])
+  householdId String?
+  phone       String    @unique
+  email       String?   @unique
+  phoneVerifiedAt DateTime?
+  emailVerifiedAt DateTime?
+  name        String
+  role        Role?
+  platformRole PlatformRole @default(user)
+  /// ISO 639-1 code (e.g. 'en', 'id', 'my', 'vi', 'bn', 'tl', 'zh') — drives message translation.
+  preferredLanguage String @default("en")
+  /// Bumped to invalidate all existing refresh tokens (e.g. on logout-everywhere or role change).
+  tokenVersion Int      @default(0)
+  createdAt   DateTime  @default(now())
+
+  leaveRequests   LeaveRequest[]  @relation("LeaveRequestedBy")
+  leaveDecisions  LeaveDecision[] @relation("LeaveDecidedBy")
+  activityLogs    ActivityLog[]   @relation("ActivityBy")
+  tallyResponses  Tally[]         @relation("TallyHelper")
+  messagesSent    Message[]       @relation("MessageSender")
+  agencyMemberships AgencyMembership[]
+  helperProfile     HelperProfile?       @relation("HelperProfileOwner")
+  profilesApproved  HelperProfile[]      @relation("HelperProfileApprover")
+  documentsVerified ProfileDocument[]    @relation("DocumentVerifier")
+  validationsRun    ProfileValidation[]  @relation("ValidationReviewer")
+  scoresReviewed    ProfileScore[]       @relation("ScoreReviewer")
+  employerRequirement EmployerRequirement?
+  marketplaceInquiries MarketplaceInquiry[] @relation("InquiryEmployer")
+  marketplaceConsents  MarketplaceConsent[]
+  marketplaceAuditEvents MarketplaceAuditEvent[] @relation("MarketplaceAuditActor")
+
+  @@index([householdId])
+}
+
+model ContractTerms {
+  id                     String    @id @default(uuid())
+  household              Household @relation(fields: [householdId], references: [id])
+  householdId            String    @unique
+  helperName             String
+  employerName           String
+  basicSalary            Decimal   @db.Decimal(10, 2)
+  restDayRateOverride    Decimal?  @db.Decimal(10, 2)
+  contractStart          DateTime  @db.Date
+  contractLengthMonths   Int       @default(24)
+  agreedRestDaysPerMonth Int       @default(1)
+  homeLeaveAllowanceDays Int       @default(15)
+  payDayWorkingDayN      Int       @default(2)
+  unpaidHome             Boolean   @default(false)
+  unpaidExtraDayOff      Boolean   @default(true)
+  unpaidSick             Boolean   @default(false)
+  unpaidOther            Boolean   @default(true)
+  updatedAt              DateTime  @updatedAt
+}
+
+model PayField {
+  id          String    @id @default(uuid())
+  household   Household @relation(fields: [householdId], references: [id])
+  householdId String
+  name        String
+  /// 'add' | 'subtract' | 'note' | 'number' | 'date' | 'yesno'
+  type        String
+  visible     Boolean   @default(true)
+  sortOrder   Int       @default(0)
+
+  @@index([householdId])
+}
+
+model Holiday {
+  id          String    @id @default(uuid())
+  household   Household @relation(fields: [householdId], references: [id])
+  householdId String
+  date        DateTime  @db.Date
+  name        String
+
+  @@index([householdId])
+  @@unique([householdId, date])
+}
+
+model Month {
+  id                      String    @id @default(uuid())
+  household               Household @relation(fields: [householdId], references: [id])
+  householdId             String
+  /// yyyy-MM
+  yyyymm                  String
+  restDaysTaken           Int?
+  sundaysDuringLeaveOverride Int?
+  unpaidLeaveDaysOverride Int?
+  paidOn                  DateTime? @db.Date
+  fieldValues             Json?
+  signed                  Boolean   @default(false)
+  tallyInPerson           Boolean   @default(false)
+  paid                    Boolean   @default(false)
+  paidById                String?
+  paidAt                  DateTime?
+  netSnapshot             Decimal?  @db.Decimal(10, 2)
+  lastById                String?
+  lastAt                  DateTime?
+  resetAt                 DateTime?
+  createdAt               DateTime  @default(now())
+
+  paymentLines PaymentLine[]
+  tally        Tally?
+
+  @@unique([householdId, yyyymm])
+  @@index([householdId])
+}
+
+model PaymentLine {
+  id      String        @id @default(uuid())
+  month   Month         @relation(fields: [monthId], references: [id])
+  monthId String
+  method  PaymentMethod
+  /// null = this line absorbs the remainder
+  amount  Decimal?      @db.Decimal(10, 2)
+
+  @@index([monthId])
+}
+
+model LeaveRequest {
+  id          String             @id @default(uuid())
+  household   Household          @relation(fields: [householdId], references: [id])
+  householdId String
+  requestedBy Member             @relation("LeaveRequestedBy", fields: [requestedById], references: [id])
+  requestedById String
+  type        LeaveType
+  fromDate    DateTime           @db.Date
+  toDate      DateTime           @db.Date
+  reason      String
+  status      LeaveRequestStatus @default(pending)
+  cancelled   Boolean            @default(false)
+  createdAt   DateTime           @default(now())
+
+  decision LeaveDecision?
+
+  @@index([householdId])
+}
+
+model LeaveDecision {
+  id             String       @id @default(uuid())
+  leaveRequest   LeaveRequest @relation(fields: [leaveRequestId], references: [id])
+  leaveRequestId String       @unique
+  status         LeaveRequestStatus
+  decidedBy      Member       @relation("LeaveDecidedBy", fields: [decidedById], references: [id])
+  decidedById    String
+  comment        String
+  /// Immutable snapshot of the approved from/to dates at decision time.
+  snapshotFrom   DateTime     @db.Date
+  snapshotTo     DateTime     @db.Date
+  decidedAt      DateTime     @default(now())
+}
+
+model Tally {
+  id             String                @id @default(uuid())
+  month          Month                 @relation(fields: [monthId], references: [id])
+  monthId        String                @unique
+  helper         Member                @relation("TallyHelper", fields: [helperId], references: [id])
+  helperId       String
+  helperResponse TallyHelperResponse?
+  helperOff      Int?
+  employerOff    Int?
+  employerLeaveSundays Int?
+  comment        String?
+  respondedAt    DateTime?
+  /// Set true whenever the employer edits numbers after helperResponse = agree, to void it.
+  invalidated    Boolean               @default(false)
+}
+
+model ActivityLog {
+  id          String    @id @default(uuid())
+  household   Household @relation(fields: [householdId], references: [id])
+  householdId String
+  by          Member    @relation("ActivityBy", fields: [byId], references: [id])
+  byId        String
+  action      String
+  month       String?
+  changes     Json
+  comment     String
+  at          DateTime  @default(now())
+
+  @@index([householdId])
+  @@index([at])
+}
+
+/// Immutable household chat message. Auto-translated on send into every distinct
+/// preferredLanguage present in the household (plus English, always), so each
+/// member reads it in their own language. No update/delete endpoints exposed.
+model Message {
+  id             String    @id @default(uuid())
+  household      Household @relation(fields: [householdId], references: [id])
+  householdId    String
+  sender         Member    @relation("MessageSender", fields: [senderId], references: [id])
+  senderId       String
+  body           String    @db.Text
+  senderLanguage String
+  /// Map of ISO 639-1 language code -> translated text, e.g. { "en": "...", "id": "..." }.
+  translations   Json
+  createdAt      DateTime  @default(now())
+
+  @@index([householdId])
+  @@index([createdAt])
+}
+
+/// Short, human-shareable invite code (e.g. "GUD52J"). Single-use, expires after 7 days.
+model Invite {
+  id          String    @id @default(uuid())
+  code        String    @unique
+  household   Household @relation(fields: [householdId], references: [id])
+  householdId String
+  role        Role
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([householdId])
+}
+
+model Agency {
+  id                 String       @id @default(uuid())
+  legalName          String
+  displayName        String
+  licenceNumber      String       @unique
+  status             AgencyStatus @default(invited)
+  contactEmail       String?
+  contactPhone       String?
+  licenceVerifiedAt  DateTime?
+  licenceExpiresAt   DateTime?
+  approvedAt         DateTime?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  members         AgencyMembership[]
+  representations AgencyRepresentation[]
+  inquiries       MarketplaceInquiry[]
+
+  @@index([status])
+}
+
+model AgencyMembership {
+  id        String           @id @default(uuid())
+  agency    Agency           @relation(fields: [agencyId], references: [id])
+  agencyId  String
+  member    Member           @relation(fields: [memberId], references: [id])
+  memberId  String
+  role      AgencyMemberRole
+  active    Boolean          @default(true)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@unique([agencyId, memberId])
+  @@index([memberId])
+}
+
+model HelperProfile {
+  id                          String              @id @default(uuid())
+  member                      Member              @relation("HelperProfileOwner", fields: [memberId], references: [id])
+  memberId                    String              @unique
+  displayName                 String
+  sourceCountry               HelperSourceCountry
+  locationType                HelperLocationType
+  status                      HelperProfileStatus @default(draft)
+  bio                         String?             @db.Text
+  languages                   Json
+  yearsExperience             Int                 @default(0)
+  availableFrom               DateTime?           @db.Date
+  expectedSalary              Decimal?            @db.Decimal(10, 2)
+  introductionType            IntroductionType?
+  introductionStorageKey      String?
+  introductionVerifiedAt      DateTime?
+  lastAvailabilityConfirmedAt DateTime?
+  availabilityDueAt           DateTime?
+  submittedAt                 DateTime?
+  publishedAt                 DateTime?
+  approvedBy                  Member?             @relation("HelperProfileApprover", fields: [approvedById], references: [id])
+  approvedById                String?
+  createdAt                   DateTime             @default(now())
+  updatedAt                   DateTime             @updatedAt
+
+  skills          HelperSkill[]
+  documents       ProfileDocument[]
+  validations     ProfileValidation[]
+  scores          ProfileScore[]
+  representations AgencyRepresentation[]
+  inquiries       MarketplaceInquiry[]
+
+  @@index([status, sourceCountry, locationType])
+  @@index([availabilityDueAt])
+}
+
+model HelperSkill {
+  id              String           @id @default(uuid())
+  helperProfile   HelperProfile    @relation(fields: [helperProfileId], references: [id], onDelete: Cascade)
+  helperProfileId String
+  type            HelperSkillType
+  proficiency     SkillProficiency
+  yearsExperience Int              @default(0)
+  verified        Boolean          @default(false)
+  notes           String?
+
+  @@unique([helperProfileId, type])
+}
+
+model ProfileDocument {
+  id              String              @id @default(uuid())
+  helperProfile   HelperProfile       @relation(fields: [helperProfileId], references: [id], onDelete: Cascade)
+  helperProfileId String
+  type            ProfileDocumentType
+  storageKey      String
+  status          VerificationStatus  @default(pending)
+  expiresAt       DateTime?            @db.Date
+  verifiedBy      Member?              @relation("DocumentVerifier", fields: [verifiedById], references: [id])
+  verifiedById    String?
+  verifiedAt      DateTime?
+  rejectionReason String?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  @@index([helperProfileId, type])
+  @@index([status, expiresAt])
+}
+
+model ProfileValidation {
+  id              String            @id @default(uuid())
+  helperProfile   HelperProfile     @relation(fields: [helperProfileId], references: [id], onDelete: Cascade)
+  helperProfileId String
+  reviewer        Member            @relation("ValidationReviewer", fields: [reviewerId], references: [id])
+  reviewerId      String
+  outcome         ValidationOutcome
+  language        String
+  notes           String?           @db.Text
+  completedAt     DateTime           @default(now())
+
+  @@index([helperProfileId, completedAt])
+  @@index([reviewerId])
+}
+
+model ProfileScore {
+  id                    String        @id @default(uuid())
+  helperProfile         HelperProfile @relation(fields: [helperProfileId], references: [id], onDelete: Cascade)
+  helperProfileId       String
+  version               Int
+  identityPoints        Int
+  skillsPoints          Int
+  referencesPoints      Int
+  readinessPoints       Int
+  completenessPoints    Int
+  totalPoints           Int
+  evidence              Json
+  reviewedBy            Member?       @relation("ScoreReviewer", fields: [reviewedById], references: [id])
+  reviewedById          String?
+  manualAdjustmentReason String?      @db.Text
+  calculatedAt          DateTime      @default(now())
+  reviewedAt            DateTime?
+
+  @@unique([helperProfileId, version])
+  @@index([helperProfileId, calculatedAt])
+}
+
+model AgencyRepresentation {
+  id              String               @id @default(uuid())
+  agency          Agency               @relation(fields: [agencyId], references: [id])
+  agencyId        String
+  helperProfile   HelperProfile        @relation(fields: [helperProfileId], references: [id], onDelete: Cascade)
+  helperProfileId String
+  status          RepresentationStatus @default(pending)
+  requestedAt     DateTime             @default(now())
+  respondedAt     DateTime?
+  endedAt         DateTime?
+  endReason       String?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  @@index([helperProfileId, status])
+  @@index([agencyId, status])
+}
+
+model EmployerRequirement {
+  id                    String   @id @default(uuid())
+  member                Member   @relation(fields: [memberId], references: [id])
+  memberId              String   @unique
+  generalLocation       String?
+  householdComposition  Json
+  requiredSkills        Json
+  preferredLanguages    Json
+  preferredLocationType HelperLocationType?
+  preferredStartDate    DateTime? @db.Date
+  minimumSalary         Decimal? @db.Decimal(10, 2)
+  maximumSalary         Decimal? @db.Decimal(10, 2)
+  notes                 String?  @db.Text
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model MarketplaceInquiry {
+  id                  String        @id @default(uuid())
+  employer            Member        @relation("InquiryEmployer", fields: [employerId], references: [id])
+  employerId          String
+  helperProfile       HelperProfile @relation(fields: [helperProfileId], references: [id])
+  helperProfileId     String
+  agency              Agency        @relation(fields: [agencyId], references: [id])
+  agencyId            String
+  status              InquiryStatus @default(submitted)
+  requirementSnapshot Json
+  employerMessage     String?       @db.Text
+  agencyResponse      String?       @db.Text
+  submittedAt         DateTime      @default(now())
+  respondedAt         DateTime?
+  updatedAt           DateTime      @updatedAt
+
+  @@index([employerId, submittedAt])
+  @@index([agencyId, status])
+  @@index([helperProfileId, status])
+}
+
+model MarketplaceConsent {
+  id          String                 @id @default(uuid())
+  member      Member                 @relation(fields: [memberId], references: [id])
+  memberId    String
+  type        MarketplaceConsentType
+  version     String
+  context     Json?
+  grantedAt   DateTime               @default(now())
+  revokedAt   DateTime?
+
+  @@index([memberId, type, grantedAt])
+}
+
+model MarketplaceAuditEvent {
+  id         String   @id @default(uuid())
+  actor      Member?  @relation("MarketplaceAuditActor", fields: [actorId], references: [id])
+  actorId    String?
+  entityType String
+  entityId   String
+  action     String
+  changes    Json?
+  reason     String?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId, createdAt])
+  @@index([actorId, createdAt])
+}
